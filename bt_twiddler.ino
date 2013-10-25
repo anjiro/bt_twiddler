@@ -230,7 +230,6 @@ void keypadEvent(unsigned int kval, int state)
   switch(state)
   {
     case PRESSED:
-      kprintf("Down: %d\n", kval);
       if(keys_down > 0)  //a key was already pressed
         is_chord = 1;
       keys_down |= kval;
@@ -241,8 +240,6 @@ void keypadEvent(unsigned int kval, int state)
       output_string = get_keymap_string(keys_down);
       keys_down ^= kval;
 
-      kprintf("Up: %d; keys_down = %d; is_chord = %d\n", kval, keys_down, is_chord);
-      
       if(keys_down == 0)
       {
         if(!is_chord)
@@ -266,7 +263,6 @@ void keypadEvent(unsigned int kval, int state)
 
 void send_string(char *s)
 {
-  kprintf("send_string(%s)\n", s);
   for(int i = 0; i < strlen(s); i++)
     send_key(s[i]);
 }
@@ -275,7 +271,6 @@ void send_string(char *s)
 
 void send_key(char k)
 {
-  kprintf("send_key(%c)\n", k);
   //                0      1     2    3     4     5      6     7    8     9     10    11
   //                                       mod    0     kb0   kb1   kb2   kb3   kb4   kb5
   uint8_t seq[] = {0x9f, 0x0a, 0xa1, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
