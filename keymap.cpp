@@ -187,7 +187,7 @@ struct usb_key shift_usb_keymap[] =
 char *get_keymap_string(unsigned int keycode)
 {
   int i;
-  for(i = 0; i < sizeof(keymap); i++)
+  for(i = 0; i < sizeof(keymap)/sizeof(keymap[0]); i++)
     if(keymap[i].keycode == keycode)
       return keymap[i].str;
   return 0;
@@ -197,7 +197,7 @@ char *get_keymap_string(unsigned int keycode)
 //Convert a given character to the USB keycode
 unsigned int convert_char_to_scancode(char c)
 {
-  for(int i = 0; i < sizeof(usb_keymap); i++)
+  for(int i = 0; i < sizeof(usb_keymap)/sizeof(usb_keymap[0]); i++)
     if(usb_keymap[i].key == c)
       return usb_keymap[i].keycode;
   return 0;
@@ -207,7 +207,7 @@ unsigned int convert_char_to_scancode(char c)
 //Convert a given character to the USB keycode, assuming shift pressed
 unsigned int convert_char_to_shift_scancode(char c)
 {
-  for(int i = 0; i < sizeof(shift_usb_keymap); i++)
+  for(int i = 0; i < sizeof(shift_usb_keymap)/sizeof(shift_usb_keymap[0]); i++)
     if(shift_usb_keymap[i].key == c)
       return shift_usb_keymap[i].keycode;
   return 0;
