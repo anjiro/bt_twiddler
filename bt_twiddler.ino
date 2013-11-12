@@ -6,16 +6,21 @@
 #include <MAX1704.h>
 #include <SyncLED.h>
 
+#define strncmp2(s1, s2) strncmp(s1, s2, sizeof(s2)-1)
+
 //Periodically do stuff
-MAX1704 fuelGauge;                       // Object for battery charge device
-unsigned long last_battery_print = 0;    //Last time the battery level was printed
-SyncLED StatusLight(13);                 //Blinking status light on pin 13
+MAX1704 fuelGauge;                     // Object for battery charge device
+unsigned long last_battery_print = 0;  //Last time the battery level was printed
+unsigned long last_battery_check = 0;  //Last time the battery level was checked
+unsigned long last_blink_pattern = 0;  //Only update when it changes
+SyncLED StatusLight(13);               //Blinking status light on pin 13
 
 //Bluetooth communication
 #define BT_CMD_PIN 15    //On transition to high, the WT12 enters command mode
 char iwrap_string[255];  //Keep track of strings coming from iWrap
 int  str_pos = 0;        //Position in the iwrap string
-int was_cmd_req = 0;     //Set to 1 when a command mode request was sent via BT_CMD_PIN
+int  was_cmd_req = 0;    //Set to 1 when a command mode request was sent via BT_CMD_PIN
+int  bt_connected = 0;   //Is the Bluetooth link connected? If not, don't try to send keypresses
 
 //Keyboard variables
 unsigned int key_modifier = 0;  //Shift, Alt, etc
@@ -58,6 +63,7 @@ void setup()
   Serial.begin(9600);
   Serial3.begin(115200);
 
+  //Initial blink pattern
   StatusLight.blinkPattern(0b00110011UL, 50, 8);
   
   fuelGauge.reset();
@@ -78,31 +84,38 @@ void loop()
   char c;
   unsigned int i;
   unsigned int val = 0;
+  unsigned long blink_pattern = 0;
   
-  //StatusLight.update();
-  /*
-  if(millis() - t > 100)
-  {
-    b = !b;
-    digitalWrite(13, b);
-    t = millis();
-  }*/
+  StatusLight.update();
 
-  //Print the battery charge level every 5 seconds
-  if(millis() - last_battery_print > 5000)
+  if(millis() - last_battery_check > 250)
   {
     float charge = fuelGauge.stateOfCharge();
-    kprintf("Battery charge: %.2f%%\n", charge);
-    last_battery_print = millis();
 
-    if(charge > 75)
-      StatusLight.blinkPattern(0b1111100000000000UL, 100, 8);  //75-100%
-    else if(charge > 50)
-      StatusLight.blinkPattern(0b1010100000000000UL, 100, 8);  //50-75%
-    else if(charge > 25)
-      StatusLight.blinkPattern(0b1010000000000000UL, 100, 8);  //25-50%
+    if(millis() - last_battery_print > 20000)
+    {
+      kprintf("Battery charge: %.2f%%\n", charge);
+      last_battery_print = millis();
+    }
+    
+    //Blink 1-5 times based on percentage of charge
+    if(charge > 80)
+      blink_pattern = 0b1010101010000000UL;
+    else if(charge > 60)
+      blink_pattern = 0b1010101000000000UL;
+    else if(charge > 40)
+      blink_pattern = 0b1010100000000000UL;
+    else if(charge > 20)
+      blink_pattern = 0b1010000000000000UL;
     else
-      StatusLight.blinkPattern(0b1010000000000000UL, 50, 16);  // 0-25%
+      blink_pattern = 0b1000000000000000UL;
+    if(bt_connected)
+      blink_pattern |= 0b0000000000111110;
+    if(blink_pattern != last_blink_pattern)
+    {
+      StatusLight.blinkPattern(blink_pattern, 100, 16);
+      last_blink_pattern = blink_pattern;
+    }
   }
   
   //Print output from the WT12 module and watch for events
@@ -130,7 +143,7 @@ void loop()
     for(i = 0; i < LIST_MAX; i++)
       if(thumb_kpd.key[i].stateChanged)
       {
-        kprintf("Thumb: %d\n", thumb_kpd.key[i].kchar);
+        //kprintf("Thumb: %d\n", thumb_kpd.key[i].kchar);
         thumbKeypadEvent(key_to_thumb[thumb_kpd.key[i].kchar], thumb_kpd.key[i].kstate);
       }
   
@@ -154,10 +167,16 @@ void iwrap_event(char *event)
       Serial3.println("RESET");
     }
   }
-  else if(!strcmp(event, "CONNECT 0 HID 11"))
+  else if(!strcmp(event, "CONNECT 0 HID 11") || !strncmp2(event, "RING 0"))
+  {
     Serial3.println("SELECT 0");
+    bt_connected = 1;
+  }
+  else if(!strncmp2(event, "CONNECT 0"))
+    bt_connected = 1;
+  else if(!strncmp2(event, "NO CARRIER 0"))
+    bt_connected = 0;
 }
-
 
 
 //Output the battery level via the keyboard
@@ -189,6 +208,8 @@ void thumbKeypadEvent(unsigned int kval, int state)
 {
   if(state != PRESSED && state != RELEASED)
     return;
+    
+  kprintf("thumb: 0x%02X, %d\n", kval, state);
     
   //BUG: prevents NUM from being used as part of a chord
   if(kval == NUM)
@@ -230,6 +251,7 @@ void keypadEvent(unsigned int kval, int state)
   switch(state)
   {
     case PRESSED:
+      //kprintf("Down: %d\n", kval);
       if(keys_down > 0)  //a key was already pressed
         is_chord = 1;
       keys_down |= kval;
@@ -240,6 +262,8 @@ void keypadEvent(unsigned int kval, int state)
       output_string = get_keymap_string(keys_down);
       keys_down ^= kval;
 
+      kprintf("Up: %d; keys_down = %d; is_chord = %d\n", kval, keys_down, is_chord);
+      
       if(keys_down == 0)
       {
         if(!is_chord)
@@ -263,6 +287,7 @@ void keypadEvent(unsigned int kval, int state)
 
 void send_string(char *s)
 {
+  //kprintf("send_string(%s)\n", s);
   for(int i = 0; i < strlen(s); i++)
     send_key(s[i]);
 }
@@ -271,6 +296,10 @@ void send_string(char *s)
 
 void send_key(char k)
 {
+  kprintf("send_key(0x%02X)\n", k);
+  if(!bt_connected)
+    return;
+    
   //                0      1     2    3     4     5      6     7    8     9     10    11
   //                                       mod    0     kb0   kb1   kb2   kb3   kb4   kb5
   uint8_t seq[] = {0x9f, 0x0a, 0xa1, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
